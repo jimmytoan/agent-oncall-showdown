@@ -10,10 +10,10 @@ from google.genai import types
 
 from ..config import SH_TOOL_DESCRIPTION, SYSTEM_PROMPT, Limits, user_prompt
 from ..ops import OpsBox
-from . import AgentResult, price_from_tokens
+from . import TUNED_LITELLM_KWARGS, AgentResult, LiteLLMMeter, price_from_tokens
 
 
-async def run(alert: str, ops: OpsBox, model: str, limits: Limits) -> AgentResult:
+async def run(alert: str, ops: OpsBox, model: str, limits: Limits, tuned: bool = False) -> AgentResult:
     async def sh(command: str) -> str:
         return await ops.run(command)
 
@@ -21,7 +21,7 @@ async def run(alert: str, ops: OpsBox, model: str, limits: Limits) -> AgentResul
 
     # Claude and GPT both go through LiteLLM; bare names (e.g. gemini-*) use ADK's native provider.
     if model.startswith("claude"):
-        llm = LiteLlm(model=f"anthropic/{model}")
+        llm = LiteLlm(model=f"anthropic/{model}", **(TUNED_LITELLM_KWARGS if tuned else {}))
     elif model.startswith("gpt"):
         llm = LiteLlm(model=f"openai/{model}", reasoning_effort="medium")
     else:
@@ -33,6 +33,7 @@ async def run(alert: str, ops: OpsBox, model: str, limits: Limits) -> AgentResul
     runner = Runner(agent=agent, app_name="showdown", session_service=sessions)
 
     result = AgentResult(cost_source="litellm-price-map")
+    meter = LiteLLMMeter().__enter__()
     try:
         async for ev in runner.run_async(
             user_id="oncall",
@@ -54,5 +55,9 @@ async def run(alert: str, ops: OpsBox, model: str, limits: Limits) -> AgentResul
             result.stopped_by = "max_calls"
         else:
             raise
+    finally:
+        meter.__exit__()
     result.cost_usd = price_from_tokens(model, result)
+    if tuned:
+        meter.apply(result)
     return result

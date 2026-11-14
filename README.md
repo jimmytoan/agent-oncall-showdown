@@ -45,6 +45,23 @@ Each scenario has `inject.sh`, `verify.sh` (restored / data_safe / durable), a r
 - In the same-model round, every SDK runs the same Claude model (the OpenAI Agents SDK and ADK go through LiteLLM).
 - Root causes are graded by an LLM judge that sees only the ground truth and the agent's final report.
 
+## Results (November 2026, one run per incident)
+
+| Round | SDK | Model | Restored | Data safe | Durable | Root cause correct | Median time | Cost per incident |
+|---|---|---|---|---|---|---|---|---|
+| 1 same model | Claude Agent SDK | Claude Opus 5.5 | 8/8 | 8/8 | 8/8 | 8/8 | 88s | $0.18 |
+| 1 same model | OpenAI Agents SDK (LiteLLM) | Claude Opus 5.5 | 8/8 | 8/8 | 8/8 | 8/8 | 102s | $0.47 |
+| 1 same model | Google ADK (LiteLLM) | Claude Opus 5.5 | 8/8 | 8/8 | 8/8 | 8/8 | 133s | $0.55 |
+| 2 native | OpenAI Agents SDK | GPT-5.6-sol | 8/8 | 8/8 | 8/8 | 8/8 | 93s | $0.20 |
+| 2 native | Google ADK (LiteLLM) | GPT-5.6-sol | 8/8 | 8/8 | 8/8 | 8/8 | 80s | $0.17 |
+| 3 tuned | OpenAI Agents SDK + caching | Claude Opus 5.5 | 8/8 | 8/8 | 8/8 | 8/8 | 96s | $0.16 |
+| 3 tuned | Google ADK + caching | Claude Opus 5.5 | 8/8 | 8/8 | 8/8 | 8/8 | 112s | $0.19 |
+
+Round 1's cost gap comes from prompt caching. The Claude Agent SDK caches the conversation automatically; through
+LiteLLM, Anthropic caching is opt-in. The `+tuned` contestants add LiteLLM `cache_control_injection_points` and
+`reasoning_effort="medium"`, which closes the gap (`harness/contestants/__init__.py`). Regenerate the tables with
+`uv run python -m harness.report --tag <tag>` (tags: `same-model-r1`, `native-r1`, `tuned-r1`).
+
 ## Run it
 
 ```bash
@@ -53,6 +70,8 @@ uv sync
 uv run python -m harness.selftest                     # no LLM: every scenario breaks and the reference fix passes
 uv run python -m harness.run --scenarios 06 --contestants claude-sdk
 uv run python -m harness.run --contestants claude-sdk,openai-agents,adk --model claude-opus-5-5 --tag same-model
+uv run python -m harness.run --contestants openai-agents,adk --model gpt-5.6-sol --tag native
+uv run python -m harness.run --contestants openai-agents+tuned,adk+tuned --model claude-opus-5-5 --tag tuned
 ```
 
 Results are written to `results/runs.jsonl`, with full transcripts in `results/raw/<run_id>/`.

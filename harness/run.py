@@ -22,7 +22,8 @@ from .config import RESULTS, ROOT, SCENARIOS, Limits
 from .contestants import AgentResult, registry
 from .ops import OpsBox
 
-SDK_PACKAGES = {"claude-sdk": "claude-agent-sdk", "openai-agents": "openai-agents", "adk": "google-adk"}
+SDK_PACKAGES = {"claude-sdk": "claude-agent-sdk", "openai-agents": "openai-agents", "adk": "google-adk",
+                "openai-agents+tuned": "openai-agents", "adk+tuned": "google-adk"}
 
 
 def scenario_ids(selector: str | None) -> list[str]:

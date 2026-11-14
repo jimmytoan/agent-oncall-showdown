@@ -1,0 +1,85 @@
+# "shopfront": a deliberately small but realistic stack that the on-call agents look after.
+# proxy (Caddy) -> api (FastAPI) -> db (Postgres) + cache/queue (Redis) <- worker
+name: shopfront
+
+services:
+  db:
+    image: postgres:17
+    command: ["postgres", "-c", "max_parallel_workers_per_gather=0"]
+    cpus: "1.0"   # a small managed-DB-sized instance
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD: shop
+      POSTGRES_DB: shop
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop -d shop"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+
+  cache:
+    image: redis:7
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - ./cache/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./api
+    env_file: .env
+    volumes:
+      - receipts:/data/receipts
+    depends_on:
+      db: { condition: service_healthy }
+      cache: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  worker:
+    build: ./worker
+    env_file: .env
+    restart: unless-stopped
+    mem_limit: 160m
+    memswap_limit: 160m   # no swap: hitting the limit means OOMKilled, like a real container platform
+    volumes:
+      - receipts:/data/receipts
+    depends_on:
+      db: { condition: service_healthy }
+      cache: { condition: service_healthy }
+
+  proxy:
+    image: caddy:2
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "18080:80"
+    depends_on:
+      api: { condition: service_healthy }
+
+  traffic:
+    build: ./traffic
+    environment:
+      TARGET: http://proxy/api
+      CONCURRENCY: "8"
+    depends_on:
+      - proxy
+
+volumes:
+  pgdata:
+  # Small tmpfs-backed volume so "disk full" is reproducible without touching the host disk.
+  receipts:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=8m

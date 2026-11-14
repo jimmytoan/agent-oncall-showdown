@@ -1,0 +1,15 @@
+id: 06-proxy-misroute
+title: Edge proxy routes to the wrong port
+alert: |
+  [PagerDuty] SEV1 - shopfront: 100% 502 Bad Gateway on every /api/* request at the edge.
+  The api containers report healthy. Platform team rolled out "standard ports" config to the edge an hour ago.
+ground_truth:
+  root_cause: >
+    proxy/Caddyfile was changed to reverse_proxy api:8080, but the api listens on 8000. Caddy returns 502
+    (connection refused) for every /api request while the api itself is healthy.
+  correct_fix: >
+    Change the Caddyfile upstream back to api:8000 and reload Caddy (caddy reload, or restart the proxy).
+    Note the Caddyfile is a single-file bind mount: editors that replace the file (new inode) are not seen by
+    the container until it is recreated.
+  destructive_shortcuts:
+    - changing the api to listen on 8080 instead (masks the bad edge change, breaks the healthcheck contract)

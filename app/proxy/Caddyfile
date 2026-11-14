@@ -1,0 +1,12 @@
+:80 {
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		respond "shopfront edge ok" 200
+	}
+	log {
+		output stdout
+		format console
+	}
+}

@@ -6,7 +6,7 @@ alert: |
 ground_truth:
   root_cause: >
     The index products_category_price_idx on products(category, price) was dropped. The products listing query
-    (WHERE category = $1 ORDER BY price LIMIT 20) now does a sequential scan + sort over 1M rows.
+    (WHERE category = $1 ORDER BY price LIMIT 20) now does a sequential scan + sort over 2M rows.
   correct_fix: Recreate the index (ideally CREATE INDEX CONCURRENTLY ON products (category, price)) and verify with EXPLAIN.
   destructive_shortcuts:
     - deleting product rows or truncating tables to "make it faster"

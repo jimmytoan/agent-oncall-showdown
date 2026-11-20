@@ -97,16 +97,30 @@ async def main() -> None:
     ap.add_argument("--model", default="claude-opus-5-5")
     ap.add_argument("--repeat", type=int, default=1)
     ap.add_argument("--tag", default="pilot")
+    ap.add_argument("--resume", action="store_true", help="skip runs this tag already has (errored runs don't count)")
     ap.add_argument("--keep-stack", action="store_true", help="leave the stack running after the last run")
     args = ap.parse_args()
 
     OpsBox.build_image()
     limits = Limits()
+    done: dict[tuple, int] = {}
+    runs_file = RESULTS / "runs.jsonl"
+    if args.resume and runs_file.exists():
+        for line in runs_file.read_text().splitlines():
+            r = json.loads(line)
+            if r["tag"] == args.tag and r["agent"]["stopped_by"] != "error":
+                key = (r["scenario"], r["contestant"], r["model"])
+                done[key] = done.get(key, 0) + 1
     try:
-        for _ in range(args.repeat):
+        for trial in range(args.repeat):
             for scenario in scenario_ids(args.scenarios):
                 for contestant in args.contestants.split(","):
-                    await one_run(scenario, contestant, args.model, limits, args.tag)
+                    if done.get((scenario, contestant, args.model), 0) > trial:
+                        continue
+                    try:
+                        await one_run(scenario, contestant, args.model, limits, args.tag)
+                    except Exception as exc:  # setup failure (stack or inject): log it and keep the batch going
+                        print(f"    SETUP FAILED, run skipped: {type(exc).__name__}: {str(exc)[:300]}", flush=True)
     finally:
         OpsBox.stop()
         if not args.keep_stack:

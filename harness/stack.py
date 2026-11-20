@@ -26,11 +26,14 @@ def _dc(*args: str, check: bool = True, quiet: bool = True) -> subprocess.Comple
 
 def reset() -> None:
     """Tear down any previous run (including volumes) and start a pristine stack with warm traffic."""
-    if (APP_DIR / "compose.yaml").exists():
-        _dc("down", "-v", "--remove-orphans", "--timeout", "5", check=False)
-    shutil.rmtree(APP_DIR, ignore_errors=True)
-    shutil.copytree(APP_TEMPLATE, APP_DIR, ignore=shutil.ignore_patterns("ops"))
-    _dc("up", "-d", "--build", "--wait", "--wait-timeout", "240", quiet=False)
+    for attempt in range(3):  # compose up occasionally fails right after a teardown; a clean retry fixes it
+        if (APP_DIR / "compose.yaml").exists():
+            _dc("down", "-v", "--remove-orphans", "--timeout", "5", check=False)
+        shutil.rmtree(APP_DIR, ignore_errors=True)
+        shutil.copytree(APP_TEMPLATE, APP_DIR, ignore=shutil.ignore_patterns("ops"))
+        if _dc("up", "-d", "--build", "--wait", "--wait-timeout", "240", quiet=False, check=attempt == 2).returncode == 0:
+            break
+        time.sleep(10)
     time.sleep(WARMUP_S)
 
 

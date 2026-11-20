@@ -13,7 +13,7 @@ whether the root cause in the agent's report matches the ground truth.
 ## The stack under test: `shopfront`
 
 ```
-traffic -> proxy (Caddy) -> api (FastAPI) -> db (Postgres, 1M products)
+traffic -> proxy (Caddy) -> api (FastAPI) -> db (Postgres, 2M products)
                                    \-> cache (Redis: carts + order queue) <- worker -> receipts volume
 ```
 

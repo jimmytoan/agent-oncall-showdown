@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 from google.adk.agents import LlmAgent, RunConfig
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
@@ -11,6 +14,9 @@ from google.genai import types
 from ..config import SH_TOOL_DESCRIPTION, SYSTEM_PROMPT, Limits, user_prompt
 from ..ops import OpsBox
 from . import TUNED_LITELLM_KWARGS, AgentResult, LiteLLMMeter, price_from_tokens
+
+
+GEMINI_MIN_INTERVAL_S = 4.5  # free AI Studio keys allow 15 requests/minute; space the calls out instead of hitting 429s
 
 
 async def run(alert: str, ops: OpsBox, model: str, limits: Limits, tuned: bool = False) -> AgentResult:
@@ -26,7 +32,18 @@ async def run(alert: str, ops: OpsBox, model: str, limits: Limits, tuned: bool =
         llm = LiteLlm(model=f"openai/{model}", reasoning_effort="medium")
     else:
         llm = model
-    agent = LlmAgent(name="oncall_sre", model=llm, instruction=SYSTEM_PROMPT, tools=[sh])
+    throttled = {"last": 0.0, "waited": 0.0}
+
+    async def throttle(callback_context, llm_request):  # noqa: ANN001, ARG001
+        wait = throttled["last"] + GEMINI_MIN_INTERVAL_S - time.monotonic()
+        if wait > 0:
+            throttled["waited"] += wait
+            await asyncio.sleep(wait)
+        throttled["last"] = time.monotonic()
+        return None
+
+    agent = LlmAgent(name="oncall_sre", model=llm, instruction=SYSTEM_PROMPT, tools=[sh],
+                     before_model_callback=throttle if model.startswith("gemini") else None)
 
     sessions = InMemorySessionService()
     session = await sessions.create_session(app_name="showdown", user_id="oncall")
@@ -60,4 +77,6 @@ async def run(alert: str, ops: OpsBox, model: str, limits: Limits, tuned: bool =
     result.cost_usd = price_from_tokens(model, result)
     if tuned:
         meter.apply(result)
+    if throttled["waited"]:
+        result.extra["throttle_wait_s"] = round(throttled["waited"], 1)  # subtract from elapsed for a fair time
     return result
